@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 #[derive(Debug)]
-struct PBGql {
+pub struct PBGql {
     client: reqwest::Client,
     url: String,
 }
