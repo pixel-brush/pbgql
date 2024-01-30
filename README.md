@@ -5,7 +5,7 @@ Super minimal no frills good for moving quick and then ditch for a more featured
 # Examples
 ```rust
 use std::collections::HashMap;
-use pbgql::PBGql;
+use pbgql::client::PBGql;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

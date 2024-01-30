@@ -33,7 +33,7 @@ impl PBGql {
         variables: Option<HashMap<String, serde_json::Value>>,
     ) -> anyhow::Result<T>
     where
-        T: for<'a> serde::Deserialize<'a> + std::fmt::Debug,
+        T: for<'a> serde::Deserialize<'a>,
     {
         let body = if let Some(variables) = variables {
             serde_json::json!({
@@ -55,8 +55,12 @@ impl PBGql {
             .json()
             .await?;
 
-        Ok(serde_json::from_value(
-            resp.get("data").expect("data to exist").clone(),
+        Ok(serde_json::from_str(
+            resp.get("data")
+                .expect("data to exist")
+                .clone()
+                .to_string()
+                .as_str(),
         )?)
     }
 }
@@ -95,6 +99,40 @@ mod tests {
                 .as_str()
                 .unwrap()
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pbgql_should_resolve_query_from_example_typed() -> anyhow::Result<()> {
+        let client = PBGql::new(String::from("https://countries.trevorblades.com/graphql"));
+
+        let query = "
+        query getCountry($name: String!) {
+            countries(filter: {name: {eq: $name}}) {
+                name
+            }
+        }
+        ";
+
+        let mut variables = HashMap::new();
+        variables.insert(
+            String::from("name"),
+            serde_json::Value::String(String::from("Australia")),
+        );
+
+        #[derive(serde::Deserialize)]
+        struct Country {
+            name: String,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct CountriesResponse {
+            countries: Vec<Country>,
+        }
+
+        let data: CountriesResponse = client.send(query, Some(variables)).await?;
+        assert_eq!("Australia", data.countries.first().unwrap().name);
 
         Ok(())
     }
