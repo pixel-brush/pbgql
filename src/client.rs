@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use anyhow::Context;
+
 #[derive(Debug)]
 pub struct PBGql {
     client: reqwest::Client,
@@ -46,22 +48,21 @@ impl PBGql {
             })
         };
 
-        let resp: serde_json::Value = self
+        let resp = self
             .client
             .post(&self.url)
             .json(&body)
             .send()
             .await?
-            .json()
+            .text()
             .await?;
 
-        Ok(serde_json::from_str(
-            resp.get("data")
-                .expect("data to exist")
-                .clone()
-                .to_string()
-                .as_str(),
-        )?)
+        let data: serde_json::Value = serde_json::from_str(&resp)?;
+
+        match serde_json::from_str(data.get("data").context(resp)?.clone().to_string().as_str()) {
+            Ok(d) => Ok(d),
+            Err(e) => Err(anyhow::anyhow!(e)),
+        }
     }
 }
 
@@ -179,6 +180,66 @@ mod tests {
 
         let d: serde_json::Value = client.send(query, Some(variables)).await?;
         assert!(d.get("addJob").is_some());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pbgql_should_resolve_mutation_rn() -> anyhow::Result<()> {
+        let client = PBGql::new(String::from("http://localhost:8080/graphql"));
+
+        let query = "
+        mutation addCandidate($input: [AddCandidateInput!]!) {
+            addCandidate(input: $input) {
+                numUids
+            }
+        }
+        ";
+
+        let mut variables = HashMap::new();
+
+        variables.insert(
+            String::from("input"),
+            serde_json::json!(vec![serde_json::json!({
+                "firstName": "First Name",
+                "lastName": "Last Name",
+            })]),
+        );
+
+        let d: serde_json::Value = client.send(query, Some(variables)).await?;
+        assert!(d.get("addCandidate").is_some());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pbgql_should_show_error_in_context() -> anyhow::Result<()> {
+        let client = PBGql::new(String::from("http://localhost:8080/graphql"));
+
+        let query = "
+        mutation addJob($input: [AddJobInputInvalid!]!) {
+            addJob(input: $input) {
+                numUids
+            }
+        }
+        ";
+
+        let mut variables = HashMap::new();
+        variables.insert(
+            String::from("input"),
+            serde_json::json!(vec![serde_json::json!({
+                "title": "Software Engineer",
+                "location": "Sydney",
+                "requiredSkills": vec!["Rust", "Go"]
+            })]),
+        );
+
+        let d = client
+            .send::<serde_json::Value>(query, Some(variables))
+            .await;
+        assert!(d.is_err());
+
+        assert!(d.err().unwrap().to_string().contains("Variable type provided [AddJobInputInvalid!]! is incompatible with expected type [AddJobInput!]!"));
 
         Ok(())
     }
